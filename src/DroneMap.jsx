@@ -151,14 +151,7 @@ export default function DroneMap() {
     animRef.current.rafId = requestAnimationFrame(stepAuto);
   };
 
-  // ===== UI helpers =====
-  const useCurrentCenterAsFocus = () => {
-    const c = mapRef.current.getCenter();
-    setFocus({ lng:c.lng, lat:c.lat });
-    const start = turf.destination([c.lng, c.lat], radius/1000, 0, { units:"kilometers" }).geometry.coordinates;
-    droneMarkerRef.current.setLngLat(start);
-  };
-
+ 
   const resetView = () => {
     const map = mapRef.current;
     if (!map) return;
@@ -189,7 +182,7 @@ export default function DroneMap() {
         <div className="section">
           <div className="row">
             <button className="btn" onClick={resetView}>↺ Reset View</button>
-            <button className="btn" onClick={useCurrentCenterAsFocus}>🎯 ใช้จุดที่มองอยู่</button>
+
           </div>
           <p className="subtle" style={{marginTop:8}}>
             แผนที่ดาวเทียม 3D + จำมุมกล้องใน URL (hash) • ไอคอนโดรนหันหน้าเข้าหาผู้ใช้เสมอ
