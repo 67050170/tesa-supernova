@@ -1,302 +1,172 @@
-// src/DroneMap.jsx
-import React, { useEffect, useRef, useState } from "react";
-import mapboxgl from "mapbox-gl";
-import * as turf from "@turf/turf";
-import "mapbox-gl/dist/mapbox-gl.css";
+import React, { useEffect, useRef, useState } from 'react';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { CFG } from './config';
 
-const DEFAULT_VIEW = {
-  center: [101.15034, 14.28965],
-  zoom: 14.38,
-  pitch: 48,
-  bearing: 78.3,
-};
+mapboxgl.accessToken = CFG.MAPBOX_TOKEN;
 
-export default function DroneMap() {
-  const token = import.meta.env.VITE_MAPBOX_TOKEN;
-  if (!token) {
-    return (
-      <div style={{ padding: 20, color: "#fff", background: "#0b0d10", minHeight: "100vh" }}>
-        ❗ ยังไม่พบ <b>VITE_MAPBOX_TOKEN</b> ในไฟล์ <code>.env</code><br />
-        ใส่: <code>VITE_MAPBOX_TOKEN=pk....</code> แล้วรันใหม่
-      </div>
-    );
-  }
-  mapboxgl.accessToken = token;
-
-  const mapContainer = useRef(null);
+export default function DroneMap({
+  markers = [],
+  exaggeration = 1.8,
+  followLatest = true
+}) {
+  const containerRef = useRef(null);
   const mapRef = useRef(null);
-  const droneMarkerRef = useRef(null);
-  const animRef = useRef({ running:false, rafId:0, lastTs:0, theta:0 });
+  const mkRef = useRef([]);
+  const [loaded, setLoaded] = useState(false);
 
-  const [speed, setSpeed] = useState(10);
-  const [radius, setRadius] = useState(250);
-  const [focus, setFocus] = useState({ lng: DEFAULT_VIEW.center[0], lat: DEFAULT_VIEW.center[1] });
-
-  const [followCamera, setFollowCamera] = useState(true);
-  const [fpv, setFpv] = useState(false);
-  const [fpvHeight, setFpvHeight] = useState(80);
-  const [fpvAhead, setFpvAhead] = useState(60);
-
+  // ✅ สร้างแผนที่ "ครั้งเดียว" ตรงนี้เท่านั้น
   useEffect(() => {
-    if (mapRef.current || !mapContainer.current) return;
+    if (!containerRef.current || mapRef.current) return;
 
     const map = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: "mapbox://styles/mapbox/satellite-streets-v12",
-      center: DEFAULT_VIEW.center,
-      zoom: DEFAULT_VIEW.zoom,
-      pitch: DEFAULT_VIEW.pitch,
-      bearing: DEFAULT_VIEW.bearing,
+      container: containerRef.current,
+      style: 'mapbox://styles/mapbox/satellite-streets-v12', // พื้นหลังภาพถ่าย
+      center: [100.985, 14.234], // พื้นที่ภูเขาชัด (ทดลอง)
+      zoom: 13.2,
+      pitch: 70,
+      bearing: -25,
       antialias: true,
-      hash: true,
     });
     mapRef.current = map;
 
-    map.addControl(new mapboxgl.NavigationControl({ visualizePitch:true }), "top-right");
-    map.addControl(new mapboxgl.ScaleControl({ unit:"metric" }));
+    map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'top-right');
+    map.addControl(new mapboxgl.FullscreenControl(), 'top-right');
+    map.addControl(new mapboxgl.ScaleControl({ maxWidth: 120, unit: 'metric' }));
 
-    map.on("load", () => {
-      if (!map.getSource("mapbox-dem")) {
-        map.addSource("mapbox-dem", {
-          type: "raster-dem",
-          url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+    // ✅ เปิด DEM + hillshade + sky/fog หลัง style โหลด
+    map.on('load', () => {
+      setLoaded(true);
+
+      // Sky + Fog
+      if (!map.getLayer('sky')) {
+        map.addLayer({
+          id: 'sky',
+          type: 'sky',
+          paint: {
+            'sky-type': 'atmosphere',
+            'sky-atmosphere-sun': [0.0, 0.0],
+            'sky-atmosphere-sun-intensity': 12
+          }
+        });
+      }
+      map.setFog({
+        'range': [0.6, 10],
+        'horizon-blend': 0.2,
+        'color': 'hsl(220,60%,70%)',
+        'high-color': 'hsl(220,80%,90%)',
+        'space-color': 'hsl(220,100%,5%)'
+      });
+
+      // DEM Terrain
+      if (!map.getSource('mapbox-dem')) {
+        map.addSource('mapbox-dem', {
+          type: 'raster-dem',
+          url: 'mapbox://mapbox.terrain-rgb',
           tileSize: 512,
           maxzoom: 14,
         });
       }
-      map.setTerrain({ source:"mapbox-dem", exaggeration: 1.5 });
+      map.setTerrain({ source: 'mapbox-dem', exaggeration });
 
-      if (!map.getLayer("sky")) {
-        map.addLayer({
-          id: "sky",
-          type: "sky",
-          paint: {
-            "sky-type": "atmosphere",
-            "sky-atmosphere-sun": [0.0, 90.0],
-            "sky-atmosphere-sun-intensity": 12,
-          },
+      // Hillshade เพื่อเงาภูเขา
+      if (!map.getSource('dem-hillshade')) {
+        map.addSource('dem-hillshade', {
+          type: 'raster-dem',
+          url: 'mapbox://mapbox.terrain-rgb',
+          tileSize: 512,
+          maxzoom: 14,
         });
       }
+      if (!map.getLayer('hillshade')) {
+        map.addLayer({
+          id: 'hillshade',
+          type: 'hillshade',
+          source: 'dem-hillshade',
+          paint: { 'hillshade-exaggeration': 0.6 }
+        }, 'sky');
+      }
 
-      const droneEl = makeDot("🛩️", "white");
-      droneMarkerRef.current = new mapboxgl.Marker({
-        element: droneEl,
-        rotationAlignment: "viewport", // หันหน้าเข้าหา user เสมอ
-      });
-
-      const start = turf.destination([focus.lng, focus.lat], radius / 1000, 0, { units:"kilometers" }).geometry.coordinates;
-      droneMarkerRef.current.setLngLat(start).addTo(map);
-
-      const ro = new ResizeObserver(() => map.resize());
-      ro.observe(mapContainer.current);
+      // (เสริม) 3D buildings ในเมือง
+      const labelLayerId = (map.getStyle().layers || []).find(
+        (l) => l.type === 'symbol' && l.layout && l.layout['text-field']
+      )?.id;
+      if (!map.getLayer('3d-buildings')) {
+        map.addLayer({
+          id: '3d-buildings',
+          source: 'composite',
+          'source-layer': 'building',
+          filter: ['==', ['get', 'extrude'], 'true'],
+          type: 'fill-extrusion',
+          minzoom: 12,
+          paint: {
+            'fill-extrusion-color': '#bfbfbf',
+            'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 12, 0, 16, ['get', 'height']],
+            'fill-extrusion-base':   ['interpolate', ['linear'], ['zoom'], 12, 0, 16, ['get', 'min_height']],
+            'fill-extrusion-opacity': 0.6
+          }
+        }, labelLayerId);
+      }
     });
 
+    // resize นุ่ม ๆ
+    const ro = new ResizeObserver(() => {
+      if (map.isStyleLoaded()) map.resize();
+    });
+    ro.observe(containerRef.current);
+
     return () => {
-      stopAuto();
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== Auto flight (วงกลม) =====
-  const startAuto = () => {
+  // ✅ บังคับปรับความสูงภูเขาเมื่อ prop เปลี่ยน
+  useEffect(() => {
     const map = mapRef.current;
-    if (!map || !droneMarkerRef.current) return;
+    if (!map || !loaded) return;
+    map.setTerrain({ source: 'mapbox-dem', exaggeration });
+  }, [exaggeration, loaded]);
 
-    const cur = droneMarkerRef.current.getLngLat();
-    const ang = turf.bearing([focus.lng, focus.lat], [cur.lng, cur.lat]);
-    animRef.current.theta = ((90 - ang) * Math.PI) / 180;
-    animRef.current.lastTs = 0;
-    animRef.current.running = true;
-    animRef.current.rafId = requestAnimationFrame(stepAuto);
-  };
-
-  const stopAuto = () => {
-    animRef.current.running = false;
-    cancelAnimationFrame(animRef.current.rafId);
-  };
-
-  const stepAuto = (ts) => {
-    if (!animRef.current.running) return;
+  // ✅ วาง marker และ (ถ้าต้องการ) ไล่ตามจุดล่าสุด
+  useEffect(() => {
     const map = mapRef.current;
-    const marker = droneMarkerRef.current;
-    if (!map || !marker) return;
+    if (!map || !loaded) return;
 
-    const last = animRef.current.lastTs || ts;
-    const dt = (ts - last) / 1000;
-    animRef.current.lastTs = ts;
+    mkRef.current.forEach((m) => m.remove());
+    mkRef.current = [];
 
-    const R = Math.max(20, radius);
-    const omega = speed / R;
-    animRef.current.theta = (animRef.current.theta + omega * dt) % (Math.PI * 2);
+    mkRef.current = markers.map((p) => {
+      const mk = new mapboxgl.Marker({ color: p.color || '#ff4fd8' }).setLngLat([p.lng, p.lat]);
+      if (p.html) mk.setPopup(new mapboxgl.Popup({ offset: 16 }).setHTML(p.html));
+      mk.addTo(map);
+      return mk;
+    });
 
-    const bearingDeg = (90 - (animRef.current.theta * 180) / Math.PI + 360) % 360;
-
-    const point = turf.destination(
-      [focus.lng, focus.lat],
-      R / 1000,
-      bearingDeg,
-      { units: "kilometers" }
-    ).geometry.coordinates;
-
-    marker.setLngLat(point);
-
-    if (fpv) {
-      updateCameraFPV(map, point, bearingDeg, fpvAhead, fpvHeight);
-    } else if (followCamera) {
-      map.easeTo({ center: point, bearing: bearingDeg, pitch: 60, duration: 250, easing: (t)=>t });
+    if (markers.length > 1) {
+      const bounds = new mapboxgl.LngLatBounds();
+      markers.forEach((p) => bounds.extend([p.lng, p.lat]));
+      map.fitBounds(bounds, { padding: 80, duration: 800, pitch: 70, bearing: map.getBearing() });
     }
 
-    animRef.current.rafId = requestAnimationFrame(stepAuto);
-  };
-
- 
-  const resetView = () => {
-    const map = mapRef.current;
-    if (!map) return;
-  
-    const drone = droneMarkerRef.current?.getLngLat();
-    const targetCenter = drone || DEFAULT_VIEW.center;
-  
-    map.easeTo({
-      center: targetCenter,
-      zoom: 16,
-      pitch: 60,
-      bearing: map.getBearing(),
-      duration: 1500,
-    });
-  };  
-  
+    if (followLatest && markers.length > 0) {
+      const last = markers[markers.length - 1];
+      map.flyTo({
+        center: [last.lng, last.lat],
+        zoom: Math.max(map.getZoom(), 14.5),
+        pitch: 72,
+        bearing: map.getBearing(),
+        duration: 900,
+        essential: true,
+      });
+    }
+  }, [markers, followLatest, loaded]);
 
   return (
-    <div className="app">
-      {/* Sidebar */}
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="logo">🛰️</div>
-          <h1>Drone Survey 3D</h1>
-          <span className="badge">v1.0</span>
-        </div>
-
-        <div className="section">
-          <div className="row">
-            <button className="btn" onClick={resetView}>↺ Reset View</button>
-
-          </div>
-          <p className="subtle" style={{marginTop:8}}>
-            แผนที่ดาวเทียม 3D + จำมุมกล้องใน URL (hash) • ไอคอนโดรนหันหน้าเข้าหาผู้ใช้เสมอ
-          </p>
-        </div>
-
-        <div className="section">
-          <h3>ตั้งค่าการบินอัตโนมัติ</h3>
-          <label className="label">ความเร็วโดรน (ม./วินาที)</label>
-          <input className="number" type="number" min="0.1" step="0.5"
-                 value={speed}
-                 onChange={(e)=>setSpeed(Math.max(0, parseFloat(e.target.value||"0")))} />
-
-          <label className="label" style={{marginTop:10}}>รัศมีการบิน (เมตร)</label>
-          <input className="number" type="number" min="20" step="10"
-                 value={radius}
-                 onChange={(e)=>setRadius(Math.max(20, parseFloat(e.target.value||"0")))} />
-
-          <div className="label" style={{marginTop:10}}>ศูนย์กลาง (lng, lat)</div>
-          <div className="grid-2">
-            <input className="number" type="number" value={focus.lng}
-                   onChange={(e)=>setFocus(v=>({...v, lng: parseFloat(e.target.value)}))}/>
-            <input className="number" type="number" value={focus.lat}
-                   onChange={(e)=>setFocus(v=>({...v, lat: parseFloat(e.target.value)}))}/>
-          </div>
-
-          <div className="row" style={{marginTop:12}}>
-            <button className="btn btn-primary" onClick={startAuto}>🛩️ เริ่มบิน</button>
-            <button className="btn btn-danger" onClick={stopAuto}>⏸ หยุด</button>
-          </div>
-        </div>
-
-        <div className="section">
-          <h3>มุมกล้อง</h3>
-
-          <label className="switch">
-            <input type="checkbox" checked={followCamera}
-                   onChange={(e)=>setFollowCamera(e.target.checked)} />
-            ให้กล้องติดตามโดรน (มุมมองกว้าง)
-          </label>
-
-          <hr />
-
-          <label className="switch">
-            <input type="checkbox" checked={fpv}
-                   onChange={(e)=>setFpv(e.target.checked)} />
-            มุมกล้องติดโดรน (FPV)
-          </label>
-
-          {fpv && (
-            <div style={{marginTop:10}}>
-              <label className="label">ความสูงกล้องเหนือโดรน (ม.)</label>
-              <input className="number" type="number" min="20" step="5"
-                     value={fpvHeight}
-                     onChange={(e)=>setFpvHeight(Math.max(20, parseFloat(e.target.value||"0")))} />
-
-              <label className="label" style={{marginTop:10}}>มองนำหน้าทิศบิน (ม.)</label>
-              <input className="number" type="number" min="5" step="5"
-                     value={fpvAhead}
-                     onChange={(e)=>setFpvAhead(Math.max(5, parseFloat(e.target.value||"0")))} />
-            </div>
-          )}
-        </div>
-
-        <p className="subtle">© tesa-supernova • Map data © Mapbox, OSM</p>
-      </aside>
-
-      {/* Map */}
-      <div className="map-wrap">
-        <div className="toolbar">
-          {/* เผื่อเพิ่มปุ่มด่วนหน้าบนแผนที่ในอนาคต */}
-        </div>
-        <div ref={mapContainer} style={{width:"100%", height:"100%"}} />
-      </div>
-    </div>
+    <div
+      ref={containerRef}
+      style={{ height: '75vh', width: '100%', borderRadius: 16, overflow: 'hidden', willChange: 'transform' }}
+    />
   );
-}
-
-/* Helpers */
-function makeDot(txt, bg = "white") {
-  const el = document.createElement("div");
-  el.style.width = "24px";
-  el.style.height = "24px";
-  el.style.borderRadius = "999px";
-  el.style.background = bg;
-  el.style.border = "2px solid #111";
-  el.style.boxShadow = "0 0 6px rgba(0,0,0,.45)";
-  el.style.display = "grid";
-  el.style.placeItems = "center";
-  el.style.fontSize = "15px";
-  el.style.userSelect = "none";
-  el.textContent = txt;
-  return el;
-}
-
-function updateCameraFPV(map, lngLat, bearingDeg, aheadMeters = 60, heightMeters = 80) {
-  if (!map) return;
-  const h = Math.max(20, Number.isFinite(heightMeters) ? heightMeters : 80);
-  const ahead = Math.max(5, Number.isFinite(aheadMeters) ? aheadMeters : 60);
-
-  const camPos = mapboxgl.MercatorCoordinate.fromLngLat(
-    { lng: lngLat[0], lat: lngLat[1] }, h
-  );
-
-  const lookAhead = turf.destination(
-    [lngLat[0], lngLat[1]], ahead/1000, bearingDeg, { units:"kilometers" }
-  ).geometry.coordinates;
-
-  const lookAt = mapboxgl.MercatorCoordinate.fromLngLat(
-    { lng: lookAhead[0], lat: lookAhead[1] }, 0
-  );
-
-  const camera = map.getFreeCameraOptions();
-  camera.position = [camPos.x, camPos.y, camPos.z];
-  camera.lookAtPoint(lookAt);
-  map.setFreeCameraOptions(camera);
 }
