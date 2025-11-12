@@ -1,0 +1,14 @@
+/* reset เบื้องต้นให้แผนที่กินเต็มหน้าจอ */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+* { box-sizing: border-box; }
+
+body {
+  background: #0b0d10; /* สีพื้นเข้มเห็นแผนที่ชัด */
+}
+
+/* ขอให้ root ไม่ถูกบีบความกว้าง/มี padding เหมือนเทมเพลตเดิม */
+#root { min-height: 100vh; }
