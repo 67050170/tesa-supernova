@@ -57,15 +57,16 @@ export default function DroneMap() {
     };
 
     const map = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: styleMap[styleId],
-      center: [100.604, 13.736],
-      zoom: 16,
-      pitch: 60,
-      bearing: -10,
-      antialias: true,
-      hash: true,
-    });
+        container: mapContainer.current,
+        style: styleMap[styleId],
+        center: [101.15034, 14.28965], // จุดที่อ้วนระบุ
+        zoom: 14.38,                   // ระดับซูม
+        pitch: 48,                     // เงยกล้องขึ้น
+        bearing: 78.3,                 // หมุนกล้องทิศตะวันออกเฉียง
+        antialias: true,
+        hash: true,
+      });
+      
     mapRef.current = map;
 
     map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), "top-right");
@@ -79,7 +80,7 @@ export default function DroneMap() {
           tileSize: 512,
           maxzoom: 14,
         });
-        map.setTerrain({ source: "mapbox-dem", exaggeration: 1.4 });
+        map.setTerrain({ source: "mapbox-dem", exaggeration: 2.0 });
       }
       if (!map.getLayer("sky")) {
         map.addLayer({
@@ -88,7 +89,7 @@ export default function DroneMap() {
           paint: {
             "sky-type": "atmosphere",
             "sky-atmosphere-sun": [0.0, 90.0],
-            "sky-atmosphere-sun-intensity": 10,
+            "sky-atmosphere-sun-intensity": 15,
           },
         });
       }
