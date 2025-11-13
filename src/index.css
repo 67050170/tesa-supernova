@@ -3,3 +3,4 @@
 .btn:disabled{ opacity:.45; cursor:not-allowed; }
 .btn-primary{ background:#6959ff; border-color:#8075ff; }
 .panel-title{ font-weight:600; font-size:14px; }
+.card{ border-radius:12px; background:#12121a; }
