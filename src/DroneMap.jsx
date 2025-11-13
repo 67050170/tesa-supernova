@@ -14,7 +14,7 @@ export default function DroneMap({
   const mapRef = useRef(null);
   const [loaded, setLoaded] = useState(false);
 
-  // สร้างแผนที่ครั้งเดียว
+  // init map
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
@@ -36,101 +36,58 @@ export default function DroneMap({
     map.on('load', () => {
       setLoaded(true);
 
-      // Sky + Fog
+      // sky + fog
       if (!map.getLayer('sky')) {
-        map.addLayer({
-          id: 'sky',
-          type: 'sky',
-          paint: {
-            'sky-type': 'atmosphere',
-            'sky-atmosphere-sun': [0, 0],
-            'sky-atmosphere-sun-intensity': 12,
-          },
-        });
+        map.addLayer({ id:'sky', type:'sky', paint:{
+          'sky-type':'atmosphere','sky-atmosphere-sun':[0,0],'sky-atmosphere-sun-intensity':12
+        }});
       }
-      map.setFog({
-        range: [0.6, 10],
-        'horizon-blend': 0.2,
-        color: 'hsl(220,60%,70%)',
-        'high-color': 'hsl(220,80%,90%)',
-        'space-color': 'hsl(220,100%,5%)',
-      });
+      map.setFog({ range:[0.6,10],'horizon-blend':0.2,color:'hsl(220,60%,70%)','high-color':'hsl(220,80%,90%)','space-color':'hsl(220,100%,5%)' });
 
-      // DEM Terrain
+      // terrain + hillshade
       if (!map.getSource('mapbox-dem')) {
-        map.addSource('mapbox-dem', {
-          type: 'raster-dem',
-          url: 'mapbox://mapbox.terrain-rgb',
-          tileSize: 512,
-          maxzoom: 14,
-        });
+        map.addSource('mapbox-dem', { type:'raster-dem', url:'mapbox://mapbox.terrain-rgb', tileSize:512, maxzoom:14 });
       }
-      map.setTerrain({ source: 'mapbox-dem', exaggeration });
+      map.setTerrain({ source:'mapbox-dem', exaggeration });
 
-      // Hillshade
       if (!map.getSource('dem-hillshade')) {
-        map.addSource('dem-hillshade', {
-          type: 'raster-dem',
-          url: 'mapbox://mapbox.terrain-rgb',
-          tileSize: 512,
-          maxzoom: 14,
-        });
+        map.addSource('dem-hillshade', { type:'raster-dem', url:'mapbox://mapbox.terrain-rgb', tileSize:512, maxzoom:14 });
       }
       if (!map.getLayer('hillshade')) {
-        map.addLayer(
-          {
-            id: 'hillshade',
-            type: 'hillshade',
-            source: 'dem-hillshade',
-            paint: { 'hillshade-exaggeration': 0.6 },
-          },
-          'sky'
-        );
+        map.addLayer({ id:'hillshade', type:'hillshade', source:'dem-hillshade', paint:{ 'hillshade-exaggeration':0.6 }}, 'sky');
       }
 
-      // 3D buildings
-      const labelLayerId = (map.getStyle().layers || []).find(
-        (l) => l.type === 'symbol' && l.layout && l.layout['text-field']
+      // buildings
+      const labelLayerId = (map.getStyle().layers||[]).find(
+        l => l.type==='symbol' && l.layout && l.layout['text-field']
       )?.id;
       if (!map.getLayer('3d-buildings')) {
-        map.addLayer(
-          {
-            id: '3d-buildings',
-            source: 'composite',
-            'source-layer': 'building',
-            filter: ['==', ['get', 'extrude'], 'true'],
-            type: 'fill-extrusion',
-            minzoom: 12,
-            paint: {
-              'fill-extrusion-color': '#bfbfbf',
-              'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 12, 0, 16, ['get', 'height']],
-              'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 12, 0, 16, ['get', 'min_height']],
-              'fill-extrusion-opacity': 0.6,
-            },
-          },
-          labelLayerId
-        );
+        map.addLayer({
+          id:'3d-buildings', source:'composite', 'source-layer':'building', filter:['==',['get','extrude'],'true'],
+          type:'fill-extrusion', minzoom:12,
+          paint:{
+            'fill-extrusion-color':'#bfbfbf',
+            'fill-extrusion-height':['interpolate',['linear'],['zoom'],12,0,16,['get','height']],
+            'fill-extrusion-base'  :['interpolate',['linear'],['zoom'],12,0,16,['get','min_height']],
+            'fill-extrusion-opacity':0.6
+          }
+        }, labelLayerId);
       }
 
-      // source/layer สำหรับจุด
+      // points source/layer
       if (!map.getSource('points')) {
-        map.addSource('points', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] },
-        });
+        map.addSource('points', { type:'geojson', data:{ type:'FeatureCollection', features:[] } });
       }
       if (!map.getLayer('points-layer')) {
         map.addLayer({
-          id: 'points-layer',
-          type: 'circle',
-          source: 'points',
-          paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 6, 18, 10],
-            'circle-color': ['get', 'color'],
-            'circle-stroke-color': '#ffffff',
-            'circle-stroke-width': 1.2,
-            'circle-opacity': 0.95,
-          },
+          id:'points-layer', type:'circle', source:'points',
+          paint:{
+            'circle-radius':['interpolate',['linear'],['zoom'],10,4,14,6,18,10],
+            'circle-color':['get','color'],
+            'circle-stroke-color':'#ffffff',
+            'circle-stroke-width':1.2,
+            'circle-opacity':0.95
+          }
         });
       }
     });
@@ -141,14 +98,14 @@ export default function DroneMap({
     return () => { ro.disconnect(); map.remove(); mapRef.current = null; };
   }, []);
 
-  // ปรับความสูง terrain ถ้า prop เปลี่ยน
+  // update terrain height
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loaded) return;
     map.setTerrain({ source: 'mapbox-dem', exaggeration });
   }, [exaggeration, loaded]);
 
-  // อัปเดตจุดตาม markers
+  // update markers
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loaded) return;
@@ -159,16 +116,14 @@ export default function DroneMap({
 
     const fc = {
       type: 'FeatureCollection',
-      features: data.map((p) => ({
+      features: data.map(p => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
         properties: {
-          color:
-            p.color ||
-            (p.objective === 'enemy' ? '#ff5b5b' : p.objective === 'our' ? '#16a34a' : '#6959ff'),
-          html: p.html || '',
-        },
-      })),
+          color: p.color || (p.objective==='enemy' ? '#ff5b5b' : p.objective==='our' ? '#16a34a' : '#6959ff'),
+          html: p.html || ''
+        }
+      }))
     };
 
     const src = map.getSource('points');
@@ -176,20 +131,13 @@ export default function DroneMap({
 
     if (data.length > 1) {
       const bounds = new mapboxgl.LngLatBounds();
-      data.forEach((p) => bounds.extend([p.lng, p.lat]));
+      data.forEach(p => bounds.extend([p.lng, p.lat]));
       map.fitBounds(bounds, { padding: 80, duration: 800, pitch: 70, bearing: map.getBearing() });
     }
 
     if (followLatest && markers && markers.length > 0) {
       const last = markers[markers.length - 1];
-      map.flyTo({
-        center: [last.lng, last.lat],
-        zoom: Math.max(map.getZoom(), 14.5),
-        pitch: 72,
-        bearing: map.getBearing(),
-        duration: 900,
-        essential: true,
-      });
+      map.flyTo({ center:[last.lng,last.lat], zoom: Math.max(map.getZoom(), 14.5), pitch:72, bearing:map.getBearing(), duration:900, essential:true });
     }
 
     const onClick = (e) => {
@@ -199,14 +147,11 @@ export default function DroneMap({
       const html = feat.properties?.html || '';
       if (html) new mapboxgl.Popup({ offset: 14 }).setLngLat([lng, lat]).setHTML(html).addTo(map);
     };
-    map.on('click', 'points-layer', onClick);
-    return () => map.off('click', 'points-layer', onClick);
+    map.on('click','points-layer', onClick);
+    return () => map.off('click','points-layer', onClick);
   }, [markers, followLatest, loaded]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{ height: '75vh', width: '100%', borderRadius: 16, overflow: 'hidden', willChange: 'transform' }}
-    />
+    <div ref={containerRef} style={{ height: '75vh', width: '100%', borderRadius: 16, overflow: 'hidden', willChange: 'transform' }} />
   );
 }

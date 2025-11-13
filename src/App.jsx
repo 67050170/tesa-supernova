@@ -21,4 +21,4 @@ export default function App() {
     </div>
   );
 }
-function NotFound(){ return <div style={{padding:24}}>404 – หน้านี้ไม่มีนะอ้วน</div>; }
+function NotFound(){ return <div style={{padding:24}}>404 – หน้านี้ไม่มีนะ</div>; }

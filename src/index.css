@@ -1,4 +1,4 @@
-.btn{ background:#1c1c24; border:1px solid #2a2a38; padding:6px 10px; border-radius:10px; color:#fff; text-decoration:none; }
+.btn{ background:#1c1c24; border:1px solid #2a2a38; padding:6px 10px; border-radius:10px; color:#fff; text-decoration:none; } 
 .btn:hover{ background:#232332; }
 .btn:disabled{ opacity:.45; cursor:not-allowed; }
 .btn-primary{ background:#6959ff; border-color:#8075ff; }
